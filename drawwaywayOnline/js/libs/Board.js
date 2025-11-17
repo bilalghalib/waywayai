@@ -1,13 +1,26 @@
+/**
+ * Board.js - Canvas Management Library
+ *
+ * Handles canvas initialization, responsive sizing, memory buffering,
+ * and localStorage persistence. Uses double-buffering for smooth performance.
+ *
+ * Key features:
+ * - 2x resolution rendering for HiDPI displays
+ * - Automatic window resize handling
+ * - Double-buffering (visible canvas + memory canvas)
+ * - Local save/restore functionality
+ */
+
 'use strict'
 
 var Board = (function() {
    var boardObject = {
-     resolution: 2,
-     dom: null,
-     ctx: null,
-     domMem: null,
-     ctxMem: null,
-     bgColor: '#ffffff',
+     resolution: 2,      // 2x for Retina displays (change to 1 for performance, 3 for quality)
+     dom: null,          // Visible canvas element
+     ctx: null,          // Visible canvas context
+     domMem: null,       // Memory canvas (invisible, for buffering)
+     ctxMem: null,       // Memory canvas context
+     bgColor: '#ffffff', // Background color
      pos: {
        x: 0,
        y: 0
@@ -49,6 +62,10 @@ var Board = (function() {
          y: (event.pageY - this.pos.y) * this.resolution
        }
      },
+     /**
+      * Save current canvas to localStorage as Base64 PNG
+      * Called on every pointerup event for auto-save
+      */
      storeMemory: function storeMemory() {
        this.ctxMem.drawImage(this.dom, 0, 0);
        localStorage.setItem('dataURL', this.domMem.toDataURL());
@@ -64,6 +81,11 @@ var Board = (function() {
      }
    };
 
+    /**
+     * Resize canvas to fit window while preserving drawing
+     * Uses smart buffering to avoid data loss during resize
+     * Called on init and window resize events
+     */
     var fitToWindow = function fitToWindow() {
       var marginX = 10;
       var marginY = 10;

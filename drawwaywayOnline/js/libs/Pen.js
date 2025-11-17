@@ -1,3 +1,14 @@
+/**
+ * Pen.js - Pressure-Sensitive Drawing Library
+ *
+ * Converts raw pointer events (mouse, touch, stylus) into pressure-sensitive
+ * strokes with variable line width. Captures complete stroke data for AI training.
+ *
+ * Global variables (TODO: refactor to modules):
+ * - pointerArray: Array of all captured stroke points
+ * - ev: Current pointer event data
+ */
+
 var pointerArray = new Array();
 var ev={};
 'use strict'
@@ -55,8 +66,16 @@ var ev={};
     }
   }
 
+  /**
+   * Calculate line width based on pointer input device and pressure
+   * This is the "secret sauce" that makes strokes look natural!
+   *
+   * @param {PointerEvent} e - Raw pointer event
+   * @returns {number} Line width in pixels
+   */
   var getLineWidth = function getLineWidth(e) {
     //console.log(e);
+	    // Capture complete stroke data for AI training (20+ attributes)
 	    ev = {
 		x: e.x,
 		y: e.y,
@@ -83,17 +102,26 @@ var ev={};
   	pointerArray.push(ev);
     //console.log("    console.log(pointerArray); ");
     //console.log(pointerArray);
-    
+
+    // Map device type to line width formula
+    // Different devices report pressure differently!
     switch (e.pointerType) {
       case 'touch': {
+        // Touch devices report contact area (width/height), not pressure
         if (e.width < 10 && e.height < 10) {
+          // Small touches = stylus tips (Apple Pencil, S-Pen)
           return (e.width + e.height) * 2 + 1;
         } else {
+          // Large touches = fingers
           return (e.width + e.height - 40) / 5;
         }
       }
-      case 'pen': return e.pressure * 8;
-      default: return (e.pressure) ? e.pressure * 8 : 4;
+      case 'pen':
+        // True stylus with pressure sensor (0.0 - 1.0)
+        return e.pressure * 8;
+      default:
+        // Mouse fallback (no pressure)
+        return (e.pressure) ? e.pressure * 8 : 4;
     }
   }
 
