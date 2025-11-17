@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Draw Way Way</title>
+    <script src="./js/airtable.browser.js"></script>
+    <script src="./js/airtable_builder.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="css/main.css">
+    <script src="js2/initialize.js"></script>
+</head>
+<body onload="initialize()">
+    <div class="input_block">
+        <input type="text" id="photoURL" placeholder="Enter Photo URL" style="width: 300px;">
+        <button onclick="loadImage()">Load Image</button>
+    </div>
+    <div class="input_block">
+        <button id="saveButton">Save Data</button>
+    </div>
+    <div class="input_block">
+        <label for="inputType">Input Type:</label>
+        <select id="inputType" onchange="changeInputType()">
+            <option value="mouse">Mouse</option>
+            <option value="pen">Pen</option>
+            <option value="hand">Hand</option>
+        </select>
+    </div>
+    <div class="canvas-container">
+        <canvas id="board" width="500" height="500"></canvas>
+        <div id="resize-handle"></div>
+    </div>
+    <div>
+        <progress id="progress1" value="0" max="100"></progress>
+        <span id="progress-text1">0%</span>
+        <span id="upload-status-text"></span>
+    </div>
+    <script src="js2/utilities.js"></script>
+    <script src="js2/mediaRecording.js"></script>
+    <script src="js2/canvasDrawing.js"></script>
+    <script src="js2/saveData.js"></script>
+</body>
+</html>

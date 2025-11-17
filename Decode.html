@@ -1,0 +1,36 @@
+
+
+<!DOCTYPE html>
+<html>
+
+<head>
+    <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">	    <script src="js/eruda.js"></script>
+
+    <script src="https://code.jquery.com/jquery-1.12.2.min.js"></script>
+    <script src="js/require.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.js" integrity="sha512-uKcuHr0POVc2zz1hMVTEiicF9G5SPq2k6l4xVmPeSXm8yH/rrM6ewau/Gn89ykaGrfMyhCBH4Vn/MDcS3Pccqw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <title>Draw way way</title>
+</head>
+
+<body>
+
+<input type="file" name="inputfile" id="inputfile">
+<pre id="output"></pre>
+<script type="text/javascript">
+	document.getElementById('inputfile')
+		.addEventListener('change', function() {
+
+			var fr = new FileReader();
+			fr.onload = function() {
+				document.getElementById('output')
+					.textContent = LZString.decompressFromUTF16(fr.result);
+			}
+
+			fr.readAsText(this.files[0]);
+		})
+</script>
+</body>
+
+</html>
+

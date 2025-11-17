@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "body-parser": "^1.20.0",
+    "canvas": "^2.10.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.1",
+    "extendable-media-recorder": "^6.6.10",
+    "gif-encoder-2": "^1.0.5",
+    "helmet": "^6.0.0",
+    "morgan": "^1.10.0"
+  }
+}
