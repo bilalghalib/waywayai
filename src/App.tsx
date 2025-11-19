@@ -11,6 +11,7 @@ import { ProgressDashboard } from './components/dashboard/ProgressDashboard';
 import { AchievementNotification } from './components/dashboard/AchievementNotification';
 import { StrokePoint } from './hooks/usePenEngine';
 import { useProgress, Achievement } from './hooks/useProgress';
+import { useMockRealtimeGame } from './hooks/useRealtimeGame';
 
 type GameState = 'lobby' | 'playing';
 
@@ -22,6 +23,9 @@ function App() {
   const [roundStartTime, setRoundStartTime] = useState<number | null>(null);
 
   const { stats, recordDrawing } = useProgress();
+
+  // Real-time multiplayer (using mock for now until Supabase is configured)
+  const realtimeGame = useMockRealtimeGame('ABC123', '1');
 
   // Demo data
   const roomCode = 'ABC123';
@@ -66,12 +70,12 @@ function App() {
 
   const handleGuess = (guess: string) => {
     console.log('Guess submitted:', guess);
-    // TODO: Send to Supabase, check if correct
+    realtimeGame.broadcastGuess(guess);
   };
 
   const handleStroke = (point: StrokePoint) => {
-    // TODO: Broadcast to other players via Supabase
-    console.log('Stroke:', point);
+    // Broadcast stroke to other players in real-time
+    realtimeGame.broadcastStroke(point);
   };
 
   return (
@@ -107,6 +111,8 @@ function App() {
           currentDrawer="1"
           onGuess={handleGuess}
           onStroke={handleStroke}
+          remoteStrokes={realtimeGame.remoteStrokes}
+          isConnected={realtimeGame.isConnected}
         />
       )}
 
