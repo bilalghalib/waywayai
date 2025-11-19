@@ -5,7 +5,7 @@
  * Preserves the GOLD double-buffering logic from Board.js
  */
 
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useImperativeHandle, forwardRef } from 'react';
 import { usePenEngine, StrokePoint } from '../../hooks/usePenEngine';
 
 interface DrawingCanvasProps {
@@ -16,13 +16,18 @@ interface DrawingCanvasProps {
   remoteStrokes?: StrokePoint[]; // Strokes from other players
 }
 
-export function DrawingCanvas({
+export interface DrawingCanvasRef {
+  exportAsImage: () => Promise<Blob | null>;
+  clearCanvas: () => void;
+}
+
+export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(({
   onStroke,
   onStrokeEnd,
   className = '',
   isDrawer = true,
   remoteStrokes = [],
-}: DrawingCanvasProps) {
+}, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const memoryCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -230,6 +235,28 @@ export function DrawingCanvas({
   }, [penEngine]);
 
   /**
+   * Export canvas as image blob (for sharing)
+   */
+  const exportAsImage = useCallback(async (): Promise<Blob | null> => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        resolve(blob);
+      }, 'image/png');
+    });
+  }, []);
+
+  /**
+   * Expose methods to parent via ref
+   */
+  useImperativeHandle(ref, () => ({
+    exportAsImage,
+    clearCanvas,
+  }), [exportAsImage, clearCanvas]);
+
+  /**
    * Render remote strokes (from other players)
    */
   useEffect(() => {
@@ -274,4 +301,6 @@ export function DrawingCanvas({
       }}
     />
   );
-}
+});
+
+DrawingCanvas.displayName = 'DrawingCanvas';

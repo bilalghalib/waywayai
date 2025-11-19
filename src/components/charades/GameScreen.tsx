@@ -4,8 +4,9 @@
  * Mobile-first vertical layout
  */
 
-import React, { useState } from 'react';
-import { DrawingCanvas } from '../drawing/DrawingCanvas';
+import React, { useState, useRef } from 'react';
+import { DrawingCanvas, DrawingCanvasRef } from '../drawing/DrawingCanvas';
+import { ShareButton } from '../drawing/ShareButton';
 import { StrokePoint } from '../../hooks/usePenEngine';
 
 interface Player {
@@ -35,6 +36,7 @@ export function GameScreen({
 }: GameScreenProps) {
   const [guessInput, setGuessInput] = useState('');
   const [guesses, setGuesses] = useState<{ player: string; guess: string; correct: boolean }[]>([]);
+  const canvasRef = useRef<DrawingCanvasRef>(null);
 
   const handleSubmitGuess = (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,6 +87,7 @@ export function GameScreen({
       {/* Canvas Area */}
       <div className="flex-1 relative bg-white">
         <DrawingCanvas
+          ref={canvasRef}
           isDrawer={isDrawer}
           onStroke={onStroke}
           className="w-full h-full"
@@ -173,15 +176,18 @@ export function GameScreen({
       {/* Drawer Controls */}
       {isDrawer && (
         <div className="bg-white border-t border-gray-200 p-4 shadow-lg">
-          <div className="max-w-4xl mx-auto flex justify-center space-x-4">
-            <button className="bg-gray-200 text-gray-700 px-6 py-3 rounded-xl font-semibold hover:bg-gray-300 active:scale-95 transition-all flex items-center space-x-2">
-              <span>↩️</span>
-              <span>Undo</span>
-            </button>
-            <button className="bg-red-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-red-600 active:scale-95 transition-all flex items-center space-x-2">
+          <div className="max-w-4xl mx-auto flex justify-center space-x-3">
+            <button
+              onClick={() => canvasRef.current?.clearCanvas()}
+              className="bg-red-500 text-white px-5 py-3 rounded-xl font-semibold hover:bg-red-600 active:scale-95 transition-all flex items-center space-x-2"
+            >
               <span>🗑️</span>
               <span>Clear</span>
             </button>
+            <ShareButton
+              canvasRef={canvasRef}
+              title={currentWord || 'My Drawing'}
+            />
           </div>
         </div>
       )}
