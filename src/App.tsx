@@ -7,13 +7,21 @@
 import React, { useState } from 'react';
 import { GameLobby } from './components/charades/GameLobby';
 import { GameScreen } from './components/charades/GameScreen';
+import { ProgressDashboard } from './components/dashboard/ProgressDashboard';
+import { AchievementNotification } from './components/dashboard/AchievementNotification';
 import { StrokePoint } from './hooks/usePenEngine';
+import { useProgress, Achievement } from './hooks/useProgress';
 
 type GameState = 'lobby' | 'playing';
 
 function App() {
   const [gameState, setGameState] = useState<GameState>('lobby');
   const [timeLeft, setTimeLeft] = useState(30);
+  const [showDashboard, setShowDashboard] = useState(false);
+  const [newAchievements, setNewAchievements] = useState<Achievement[]>([]);
+  const [roundStartTime, setRoundStartTime] = useState<number | null>(null);
+
+  const { stats, recordDrawing } = useProgress();
 
   // Demo data
   const roomCode = 'ABC123';
@@ -25,13 +33,26 @@ function App() {
 
   const handleStartGame = () => {
     setGameState('playing');
+    setRoundStartTime(Date.now());
 
     // Start timer
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          return 30; // Reset for next round
+
+          // Round ended - record the drawing
+          const drawingTime = roundStartTime ? (Date.now() - roundStartTime) / 1000 : undefined;
+          const unlockedAchievements = recordDrawing(drawingTime);
+
+          // Show achievement notifications
+          if (unlockedAchievements.length > 0) {
+            setNewAchievements(unlockedAchievements);
+          }
+
+          // Reset for next round
+          setRoundStartTime(Date.now());
+          return 30;
         }
         return prev - 1;
       });
@@ -55,6 +76,18 @@ function App() {
 
   return (
     <div className="app">
+      {/* Progress Dashboard Button (Floating) */}
+      <button
+        onClick={() => setShowDashboard(true)}
+        className="fixed top-4 left-4 z-40 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg hover:scale-110 transition-all"
+        title="View Progress"
+      >
+        <div className="text-center">
+          <div className="text-2xl">📊</div>
+          <div className="text-xs font-bold">{stats.totalDrawings}</div>
+        </div>
+      </button>
+
       {gameState === 'lobby' && (
         <GameLobby
           roomCode={roomCode}
@@ -76,6 +109,23 @@ function App() {
           onStroke={handleStroke}
         />
       )}
+
+      {/* Progress Dashboard Modal */}
+      {showDashboard && (
+        <ProgressDashboard stats={stats} onClose={() => setShowDashboard(false)} />
+      )}
+
+      {/* Achievement Notifications */}
+      {newAchievements.map((achievement, index) => (
+        <div key={achievement.id} style={{ top: `${4 + index * 6}rem` }}>
+          <AchievementNotification
+            achievement={achievement}
+            onDismiss={() => {
+              setNewAchievements((prev) => prev.filter((a) => a.id !== achievement.id));
+            }}
+          />
+        </div>
+      ))}
     </div>
   );
 }
