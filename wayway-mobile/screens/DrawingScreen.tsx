@@ -35,9 +35,16 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
   const [isDrawing, setIsDrawing] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [currentDrawing, setCurrentDrawing] = useState<Drawing | null>(null);
-  const [strokes, setStrokes] = useState<Stroke[]>([]);
-  const [voiceAnnotations, setVoiceAnnotations] = useState<VoiceAnnotation[]>([]);
-  const [motionData, setMotionData] = useState<MotionData[]>([]);
+
+  // Track counts only (not full data) to prevent memory leaks
+  const [strokeCount, setStrokeCount] = useState(0);
+  const [voiceCount, setVoiceCount] = useState(0);
+  const [motionCount, setMotionCount] = useState(0);
+
+  // Store in refs for final upload (not state to avoid re-renders)
+  const strokesRef = useRef<Stroke[]>([]);
+  const voiceAnnotationsRef = useRef<VoiceAnnotation[]>([]);
+  const motionDataRef = useRef<MotionData[]>([]);
 
   const drawingStartTime = useRef<number>(0);
   const streamService = useRef<DrawingStreamService | null>(null);
@@ -98,9 +105,12 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
     drawingStartTime.current = Date.now();
 
     setIsDrawing(true);
-    setStrokes([]);
-    setVoiceAnnotations([]);
-    setMotionData([]);
+    setStrokeCount(0);
+    setVoiceCount(0);
+    setMotionCount(0);
+    strokesRef.current = [];
+    voiceAnnotationsRef.current = [];
+    motionDataRef.current = [];
 
     // Notify server
     streamService.current?.startDrawing(drawingId, referenceImageUrl);
@@ -119,7 +129,9 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
   };
 
   const handleStrokeComplete = (stroke: Stroke) => {
-    setStrokes((prev) => [...prev, stroke]);
+    // Store in ref (not state) to prevent re-renders and memory growth
+    strokesRef.current.push(stroke);
+    setStrokeCount((prev) => prev + 1);
 
     // Stream to server in real-time
     streamService.current?.streamStroke(stroke);
@@ -133,7 +145,9 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
   };
 
   const handleVoiceAnnotation = (annotation: VoiceAnnotation) => {
-    setVoiceAnnotations((prev) => [...prev, annotation]);
+    // Store in ref (not state) to prevent re-renders
+    voiceAnnotationsRef.current.push(annotation);
+    setVoiceCount((prev) => prev + 1);
 
     // Stream to server
     streamService.current?.streamVoiceAnnotation(annotation);
@@ -142,7 +156,9 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
   };
 
   const handleMotionData = (data: MotionData) => {
-    setMotionData((prev) => [...prev, data]);
+    // Store in ref (not state) - already streamed to backend
+    motionDataRef.current.push(data);
+    setMotionCount((prev) => prev + 1);
 
     // Stream to server (batched internally)
     streamService.current?.streamMotionData(data);
@@ -154,33 +170,55 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
     const endTime = Date.now();
     const completedDrawing: Drawing = {
       ...currentDrawing,
-      strokes,
-      voiceAnnotations,
-      motionData,
+      strokes: strokesRef.current,
+      voiceAnnotations: voiceAnnotationsRef.current,
+      motionData: motionDataRef.current,
       endTime,
       duration: endTime - drawingStartTime.current,
     };
 
     try {
-      // Upload complete drawing
+      // Upload complete drawing (saves locally first, then uploads)
       await streamService.current?.endDrawing(completedDrawing);
 
       Alert.alert(
-        'Drawing Complete!',
-        `Captured ${strokes.length} strokes, ${voiceAnnotations.length} voice annotations, and ${motionData.length} motion readings`,
+        'Drawing Saved!',
+        `Captured ${strokeCount} strokes, ${voiceCount} voice annotations, and ${motionCount} motion readings.\n\nUploaded to server successfully.`,
         [
           {
             text: 'OK',
             onPress: () => {
               setIsDrawing(false);
               setCurrentDrawing(null);
+              // Clear refs to free memory
+              strokesRef.current = [];
+              voiceAnnotationsRef.current = [];
+              motionDataRef.current = [];
             },
           },
         ]
       );
     } catch (error) {
-      console.error('Failed to save drawing:', error);
-      Alert.alert('Save Failed', 'Could not save drawing to server');
+      console.error('Failed to upload drawing:', error);
+
+      // Drawing is saved locally, will retry when connection restored
+      Alert.alert(
+        'Saved Locally',
+        `Your drawing is saved on this device with ${strokeCount} strokes.\n\nWe'll automatically upload it when connection is restored.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setIsDrawing(false);
+              setCurrentDrawing(null);
+              // Clear refs to free memory
+              strokesRef.current = [];
+              voiceAnnotationsRef.current = [];
+              motionDataRef.current = [];
+            },
+          },
+        ]
+      );
     }
   };
 
@@ -191,9 +229,12 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
         text: 'Clear',
         style: 'destructive',
         onPress: () => {
-          setStrokes([]);
-          setVoiceAnnotations([]);
-          setMotionData([]);
+          setStrokeCount(0);
+          setVoiceCount(0);
+          setMotionCount(0);
+          strokesRef.current = [];
+          voiceAnnotationsRef.current = [];
+          motionDataRef.current = [];
         },
       },
     ]);
@@ -239,9 +280,9 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
           {/* Stats Overlay */}
           {isDrawing && (
             <View style={styles.statsOverlay}>
-              <Text style={styles.statsText}>Strokes: {strokes.length}</Text>
-              <Text style={styles.statsText}>Voice: {voiceAnnotations.length}</Text>
-              <Text style={styles.statsText}>Motion: {motionData.length}</Text>
+              <Text style={styles.statsText}>Strokes: {strokeCount}</Text>
+              <Text style={styles.statsText}>Voice: {voiceCount}</Text>
+              <Text style={styles.statsText}>Motion: {motionCount}</Text>
             </View>
           )}
         </View>

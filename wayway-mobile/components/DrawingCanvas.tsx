@@ -32,7 +32,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   minLineWidth = 1,
   maxLineWidth = 10,
 }) => {
-  const [paths, setPaths] = useState<SkPath[]>([]);
+  const [completedStrokes, setCompletedStrokes] = useState<Stroke[]>([]);
+  const [renderVersion, setRenderVersion] = useState(0); // Force re-render without array copy
   const currentPath = useRef<SkPath | null>(null);
   const currentStroke = useRef<StrokePoint[]>([]);
   const drawingStartTime = useRef<number>(0);
@@ -42,6 +43,14 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const pressureToWidth = useCallback((pressure: number): number => {
     return minLineWidth + (maxLineWidth - minLineWidth) * pressure;
   }, [minLineWidth, maxLineWidth]);
+
+  // Create path segment between two points
+  const createSegmentPath = useCallback((p1: StrokePoint, p2: StrokePoint): SkPath => {
+    const path = Skia.Path.Make();
+    path.moveTo(p1.x * canvasWidth, p1.y * canvasHeight);
+    path.lineTo(p2.x * canvasWidth, p2.y * canvasHeight);
+    return path;
+  }, [canvasWidth, canvasHeight]);
 
   // Create Skia path from points
   const createPath = useCallback((points: StrokePoint[]): SkPath => {
@@ -117,12 +126,12 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
       currentStroke.current.push(point);
 
-      // Update path
+      // Update current path
       if (currentPath.current) {
         currentPath.current = createPath(currentStroke.current);
 
-        // Force re-render
-        setPaths([...paths, currentPath.current]);
+        // Force re-render WITHOUT copying paths array (performance fix)
+        setRenderVersion(v => v + 1);
       }
 
       // Notify update
@@ -131,14 +140,14 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     .onEnd(() => {
       // Complete stroke
       if (currentPath.current && currentStroke.current.length > 0) {
-        const finalPath = currentPath.current;
-        setPaths((prev) => [...prev, finalPath]);
-
         const stroke: Stroke = {
           points: [...currentStroke.current],
           startTime: strokeStartTime.current,
           endTime: Date.now(),
         };
+
+        // Add to completed strokes (includes pressure data)
+        setCompletedStrokes((prev) => [...prev, stroke]);
 
         // Notify completion
         onStrokeComplete?.(stroke);
@@ -151,7 +160,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   // Clear canvas
   const clearCanvas = useCallback(() => {
-    setPaths([]);
+    setCompletedStrokes([]);
     currentPath.current = null;
     currentStroke.current = [];
     drawingStartTime.current = 0;
@@ -172,18 +181,51 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             color={backgroundColor}
           />
 
-          {/* Draw all paths */}
-          {paths.map((path, index) => (
-            <Path
-              key={index}
-              path={path}
-              color={strokeColor}
-              style="stroke"
-              strokeWidth={3}  // Could vary by pressure
-              strokeCap="round"
-              strokeJoin="round"
-            />
+          {/* Draw all completed strokes with pressure-based width */}
+          {completedStrokes.map((stroke, strokeIndex) => (
+            <React.Fragment key={strokeIndex}>
+              {stroke.points.slice(0, -1).map((point, pointIndex) => {
+                const nextPoint = stroke.points[pointIndex + 1];
+                const avgPressure = (point.pressure + nextPoint.pressure) / 2;
+                const segmentWidth = pressureToWidth(avgPressure);
+
+                return (
+                  <Path
+                    key={`${strokeIndex}-${pointIndex}`}
+                    path={createSegmentPath(point, nextPoint)}
+                    color={strokeColor}
+                    style="stroke"
+                    strokeWidth={segmentWidth}
+                    strokeCap="round"
+                    strokeJoin="round"
+                  />
+                );
+              })}
+            </React.Fragment>
           ))}
+
+          {/* Draw current path being drawn (uses renderVersion to trigger updates) */}
+          {currentPath.current && currentStroke.current.length > 0 && renderVersion >= 0 && (
+            <React.Fragment>
+              {currentStroke.current.slice(0, -1).map((point, index) => {
+                const nextPoint = currentStroke.current[index + 1];
+                const avgPressure = (point.pressure + nextPoint.pressure) / 2;
+                const segmentWidth = pressureToWidth(avgPressure);
+
+                return (
+                  <Path
+                    key={`current-${index}`}
+                    path={createSegmentPath(point, nextPoint)}
+                    color={strokeColor}
+                    style="stroke"
+                    strokeWidth={segmentWidth}
+                    strokeCap="round"
+                    strokeJoin="round"
+                  />
+                );
+              })}
+            </React.Fragment>
+          )}
         </Canvas>
       </GestureDetector>
     </View>

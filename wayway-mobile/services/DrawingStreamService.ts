@@ -5,6 +5,7 @@
 
 import { io, Socket } from 'socket.io-client';
 import { Stroke, VoiceAnnotation, MotionData, Drawing } from '../types/drawing';
+import { DrawingPersistence } from './DrawingPersistence';
 
 interface StreamConfig {
   serverUrl: string;
@@ -27,6 +28,9 @@ export class DrawingStreamService {
   private currentDrawingId: string | null = null;
   private motionBuffer: MotionData[] = [];
   private motionBufferSize: number = 10; // Send motion data in batches
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 5;
+  private reconnectTimer: NodeJS.Timeout | null = null;
 
   constructor(config: StreamConfig, callbacks: StreamCallbacks = {}) {
     this.config = config;
@@ -54,10 +58,15 @@ export class DrawingStreamService {
           resolve();
         });
 
-        this.socket.on('disconnect', () => {
-          console.log('WebSocket disconnected');
+        this.socket.on('disconnect', (reason) => {
+          console.log('WebSocket disconnected:', reason);
           this.isConnected = false;
           this.callbacks.onDisconnected?.();
+
+          // Attempt reconnection (unless manually disconnected)
+          if (reason !== 'io client disconnect') {
+            this.attemptReconnect();
+          }
         });
 
         this.socket.on('error', (error: any) => {
@@ -88,12 +97,74 @@ export class DrawingStreamService {
    * Disconnect from WebSocket server
    */
   disconnect(): void {
+    // Clear reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
     }
     this.isConnected = false;
     this.currentDrawingId = null;
+    this.reconnectAttempts = 0;
+  }
+
+  /**
+   * Attempt to reconnect with exponential backoff
+   */
+  private attemptReconnect(): void {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.log('Max reconnection attempts reached');
+      this.callbacks.onError?.(new Error('Failed to reconnect after multiple attempts'));
+      return;
+    }
+
+    // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+    const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 2000, 32000);
+    this.reconnectAttempts++;
+
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.connect()
+        .then(() => {
+          console.log('Reconnected successfully');
+          this.reconnectAttempts = 0;
+
+          // Retry pending uploads
+          this.retryPendingUploads();
+        })
+        .catch((error) => {
+          console.error('Reconnection failed:', error);
+          // Will attempt again via disconnect handler
+        });
+    }, delay);
+  }
+
+  /**
+   * Retry pending uploads from local storage
+   */
+  private async retryPendingUploads(): Promise<void> {
+    try {
+      const retryable = await DrawingPersistence.getRetryable();
+      console.log(`Found ${retryable.length} drawings to retry`);
+
+      for (const pending of retryable) {
+        try {
+          await this.uploadDrawing(pending.drawing);
+          await DrawingPersistence.deleteDrawing(pending.drawing.id);
+          console.log(`Successfully uploaded drawing ${pending.drawing.id}`);
+        } catch (error) {
+          console.error(`Failed to upload drawing ${pending.drawing.id}:`, error);
+          await DrawingPersistence.markFailed(pending.drawing.id);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to retry pending uploads:', error);
+    }
   }
 
   /**
@@ -189,9 +260,30 @@ export class DrawingStreamService {
   }
 
   /**
-   * End drawing session and upload complete drawing
+   * End drawing session and upload complete drawing (with offline support)
    */
-  endDrawing(drawing: Drawing): Promise<void> {
+  async endDrawing(drawing: Drawing): Promise<void> {
+    // Save locally first (data safety!)
+    await DrawingPersistence.saveDrawing(drawing);
+    console.log(`Saved drawing ${drawing.id} locally`);
+
+    // Try to upload immediately
+    try {
+      await this.uploadDrawing(drawing);
+      // Success! Delete local copy
+      await DrawingPersistence.deleteDrawing(drawing.id);
+      console.log(`Drawing ${drawing.id} uploaded and deleted from local storage`);
+    } catch (error) {
+      console.error(`Upload failed for ${drawing.id}, will retry later:`, error);
+      // Drawing stays in local storage for retry
+      throw error;
+    }
+  }
+
+  /**
+   * Upload drawing to server (internal method)
+   */
+  private uploadDrawing(drawing: Drawing): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.isConnected || !this.socket) {
         reject(new Error('Not connected to server'));
@@ -217,12 +309,12 @@ export class DrawingStreamService {
         timestamp: Date.now(),
       });
 
-      console.log(`Completed drawing: ${drawing.id}`);
+      console.log(`Uploading drawing: ${drawing.id}`);
 
       // Wait for server acknowledgment
       this.socket.once('drawing_saved', (response: any) => {
         if (response.success) {
-          console.log('Drawing saved successfully:', response);
+          console.log('Drawing uploaded successfully:', response);
           this.currentDrawingId = null;
           resolve();
         } else {
@@ -232,7 +324,7 @@ export class DrawingStreamService {
 
       // Timeout after 30 seconds
       setTimeout(() => {
-        reject(new Error('Drawing save timeout'));
+        reject(new Error('Drawing upload timeout'));
       }, 30000);
     });
   }

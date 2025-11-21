@@ -32,6 +32,8 @@ export const MotionCapture: React.FC<MotionCaptureProps> = ({
   const gyroscopeSubscription = useRef<any>(null);
   const lastAccelData = useRef<any>(null);
   const lastGyroData = useRef<any>(null);
+  const accelUpdated = useRef<boolean>(false);
+  const gyroUpdated = useRef<boolean>(false);
 
   useEffect(() => {
     if (enabled) {
@@ -52,13 +54,15 @@ export const MotionCapture: React.FC<MotionCaptureProps> = ({
     // Subscribe to accelerometer
     accelerometerSubscription.current = Accelerometer.addListener((data) => {
       lastAccelData.current = data;
-      processMotionData();
+      accelUpdated.current = true;
+      tryProcessMotion();
     });
 
     // Subscribe to gyroscope
     gyroscopeSubscription.current = Gyroscope.addListener((data) => {
       lastGyroData.current = data;
-      processMotionData();
+      gyroUpdated.current = true;
+      tryProcessMotion();
     });
 
     setIsCapturing(true);
@@ -96,6 +100,15 @@ export const MotionCapture: React.FC<MotionCaptureProps> = ({
 
     setMotionCount((prev) => prev + 1);
     onMotionData?.(motionData);
+  };
+
+  const tryProcessMotion = () => {
+    // Only process when BOTH sensors have updated (prevents duplicate data)
+    if (accelUpdated.current && gyroUpdated.current) {
+      processMotionData();
+      accelUpdated.current = false;
+      gyroUpdated.current = false;
+    }
   };
 
   return (
