@@ -15,7 +15,7 @@ import {
   StatusBar,
   Dimensions,
 } from 'react-native';
-import { DrawingCanvas } from '../components/DrawingCanvas';
+import { DrawingCanvas, DrawingCanvasRef } from '../components/DrawingCanvas';
 import { VoiceRecorder } from '../components/VoiceRecorder';
 import { MotionCapture } from '../components/MotionCapture';
 import { DrawingStreamService } from '../services/DrawingStreamService';
@@ -48,6 +48,7 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
 
   const drawingStartTime = useRef<number>(0);
   const streamService = useRef<DrawingStreamService | null>(null);
+  const canvasRef = useRef<DrawingCanvasRef>(null);
 
   useEffect(() => {
     // Initialize WebSocket connection
@@ -222,6 +223,22 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
     }
   };
 
+  const handleUndo = () => {
+    const success = canvasRef.current?.undo();
+    if (success) {
+      // Decrement count (stroke was removed from canvas but still in ref)
+      setStrokeCount((prev) => Math.max(0, prev - 1));
+    }
+  };
+
+  const handleRedo = () => {
+    const success = canvasRef.current?.redo();
+    if (success) {
+      // Increment count (stroke was re-added to canvas)
+      setStrokeCount((prev) => prev + 1);
+    }
+  };
+
   const clearDrawing = () => {
     Alert.alert('Clear Drawing?', 'This will discard all strokes', [
       { text: 'Cancel', style: 'cancel' },
@@ -229,6 +246,7 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
         text: 'Clear',
         style: 'destructive',
         onPress: () => {
+          canvasRef.current?.clear();
           setStrokeCount(0);
           setVoiceCount(0);
           setMotionCount(0);
@@ -269,12 +287,11 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
         <View style={[styles.panel, { width: panelWidth }]}>
           <Text style={styles.panelLabel}>Drawing</Text>
           <DrawingCanvas
-            width={panelWidth - 32}
-            height={panelWidth - 32}
+            ref={canvasRef}
+            canvasWidth={panelWidth - 32}
+            canvasHeight={panelWidth - 32}
             onStrokeComplete={handleStrokeComplete}
             onStrokeUpdate={handleStrokeUpdate}
-            drawingStartTime={drawingStartTime.current}
-            enabled={isDrawing}
           />
 
           {/* Stats Overlay */}
@@ -297,6 +314,27 @@ export const DrawingScreen: React.FC<DrawingScreenProps> = ({
             drawingStartTime={drawingStartTime.current}
             enabled={isDrawing}
           />
+        )}
+
+        {/* Undo/Redo Buttons */}
+        {isDrawing && (
+          <View style={styles.undoRedoRow}>
+            <TouchableOpacity
+              style={[styles.iconButton, !canvasRef.current?.canUndo() && styles.iconButtonDisabled]}
+              onPress={handleUndo}
+              disabled={!canvasRef.current?.canUndo()}
+            >
+              <Text style={styles.iconButtonText}>↶ Undo</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.iconButton, !canvasRef.current?.canRedo() && styles.iconButtonDisabled]}
+              onPress={handleRedo}
+              disabled={!canvasRef.current?.canRedo()}
+            >
+              <Text style={styles.iconButtonText}>↷ Redo</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* Action Buttons */}
@@ -415,6 +453,29 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#333333',
     gap: 12,
+  },
+  undoRedoRow: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  iconButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(204, 0, 102, 0.1)',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#CC0066',
+  },
+  iconButtonDisabled: {
+    backgroundColor: 'rgba(102, 102, 102, 0.1)',
+    borderColor: '#666666',
+    opacity: 0.5,
+  },
+  iconButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#CC0066',
   },
   buttonRow: {
     flexDirection: 'row',

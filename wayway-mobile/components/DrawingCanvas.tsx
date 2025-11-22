@@ -3,7 +3,7 @@
  * Captures: pressure, tilt, timing, accelerometer
  */
 
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { View, StyleSheet, Dimensions, Platform } from 'react-native';
 import { Canvas, Path, Skia, SkPath } from '@shopify/react-native-skia';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -14,6 +14,8 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 interface DrawingCanvasProps {
   onStrokeComplete?: (stroke: Stroke) => void;
   onStrokeUpdate?: (point: StrokePoint) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
   canvasWidth?: number;
   canvasHeight?: number;
   backgroundColor?: string;
@@ -22,17 +24,28 @@ interface DrawingCanvasProps {
   maxLineWidth?: number;
 }
 
-export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
+export interface DrawingCanvasRef {
+  undo: () => boolean;
+  redo: () => boolean;
+  clear: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+}
+
+export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(({
   onStrokeComplete,
   onStrokeUpdate,
+  onUndo,
+  onRedo,
   canvasWidth = SCREEN_WIDTH,
   canvasHeight = SCREEN_HEIGHT * 0.7,
   backgroundColor = '#FFFFFF',
   strokeColor = '#000000',
   minLineWidth = 1,
   maxLineWidth = 10,
-}) => {
+}, ref) => {
   const [completedStrokes, setCompletedStrokes] = useState<Stroke[]>([]);
+  const [redoStack, setRedoStack] = useState<Stroke[]>([]);
   const [renderVersion, setRenderVersion] = useState(0); // Force re-render without array copy
   const currentPath = useRef<SkPath | null>(null);
   const currentStroke = useRef<StrokePoint[]>([]);
@@ -86,6 +99,22 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     return path;
   }, [canvasWidth, canvasHeight]);
 
+  // Extract stylus data from event (Apple Pencil on iOS)
+  const extractStylusData = useCallback((event: any) => {
+    // On iOS with Apple Pencil, these properties may be available
+    // They're part of the native pointer event that RN Gesture Handler wraps
+    const nativeEvent = event.nativeEvent || event;
+
+    return {
+      pressure: Platform.OS === 'ios' ? (event.force || nativeEvent.force || 0.5) : 0.5,
+      tiltX: nativeEvent.tiltX || 0,  // Angle from vertical axis (-90 to 90)
+      tiltY: nativeEvent.tiltY || 0,  // Angle from vertical axis (-90 to 90)
+      twist: nativeEvent.twist || 0,  // Barrel rotation (0-359)
+      azimuth: nativeEvent.azimuthAngle,  // Direction angle (0-360)
+      altitude: nativeEvent.altitudeAngle,  // Angle from surface (0-90)
+    };
+  }, []);
+
   // Pan gesture for drawing
   const panGesture = Gesture.Pan()
     .onStart((event) => {
@@ -95,15 +124,19 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         drawingStartTime.current = strokeStartTime.current;
       }
 
+      const stylusData = extractStylusData(event);
+
       const point: StrokePoint = {
         x: event.x / canvasWidth,
         y: event.y / canvasHeight,
-        pressure: Platform.OS === 'ios' ? (event.force || 0.5) : 0.5,
-        tiltX: 0,  // Available with Apple Pencil
-        tiltY: 0,
-        twist: 0,
+        pressure: stylusData.pressure,
+        tiltX: stylusData.tiltX,
+        tiltY: stylusData.tiltY,
+        twist: stylusData.twist,
+        azimuth: stylusData.azimuth,
+        altitude: stylusData.altitude,
         timestamp: Date.now() - drawingStartTime.current,
-        pointerType: 'pen',  // Detect from event if needed
+        pointerType: 'pen',
       };
 
       currentStroke.current = [point];
@@ -113,13 +146,17 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       onStrokeUpdate?.(point);
     })
     .onUpdate((event) => {
+      const stylusData = extractStylusData(event);
+
       const point: StrokePoint = {
         x: event.x / canvasWidth,
         y: event.y / canvasHeight,
-        pressure: Platform.OS === 'ios' ? (event.force || 0.5) : 0.5,
-        tiltX: 0,
-        tiltY: 0,
-        twist: 0,
+        pressure: stylusData.pressure,
+        tiltX: stylusData.tiltX,
+        tiltY: stylusData.tiltY,
+        twist: stylusData.twist,
+        azimuth: stylusData.azimuth,
+        altitude: stylusData.altitude,
         timestamp: Date.now() - drawingStartTime.current,
         pointerType: 'pen',
       };
@@ -149,6 +186,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         // Add to completed strokes (includes pressure data)
         setCompletedStrokes((prev) => [...prev, stroke]);
 
+        // Clear redo stack when new stroke added
+        setRedoStack([]);
+
         // Notify completion
         onStrokeComplete?.(stroke);
 
@@ -158,18 +198,57 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       }
     });
 
+  // Undo last stroke
+  const undo = useCallback(() => {
+    if (completedStrokes.length === 0) {
+      return false;
+    }
+
+    const lastStroke = completedStrokes[completedStrokes.length - 1];
+    setCompletedStrokes((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, lastStroke]);
+    onUndo?.();
+
+    console.log(`Undo: removed stroke, ${completedStrokes.length - 1} strokes remaining`);
+    return true;
+  }, [completedStrokes, onUndo]);
+
+  // Redo last undone stroke
+  const redo = useCallback(() => {
+    if (redoStack.length === 0) {
+      return false;
+    }
+
+    const strokeToRedo = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setCompletedStrokes((prev) => [...prev, strokeToRedo]);
+    onRedo?.();
+
+    console.log(`Redo: added stroke, ${completedStrokes.length + 1} strokes total`);
+    return true;
+  }, [redoStack, completedStrokes, onRedo]);
+
   // Clear canvas
   const clearCanvas = useCallback(() => {
     setCompletedStrokes([]);
+    setRedoStack([]);
     currentPath.current = null;
     currentStroke.current = [];
     drawingStartTime.current = 0;
   }, []);
 
-  // Expose clear function to parent
-  useEffect(() => {
-    // Could use ref forwarding or context here
-  }, []);
+  // Check if can undo/redo
+  const canUndo = useCallback(() => completedStrokes.length > 0, [completedStrokes]);
+  const canRedo = useCallback(() => redoStack.length > 0, [redoStack]);
+
+  // Expose methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    undo,
+    redo,
+    clear: clearCanvas,
+    canUndo,
+    canRedo,
+  }), [undo, redo, clearCanvas, canUndo, canRedo]);
 
   return (
     <View style={[styles.container, { width: canvasWidth, height: canvasHeight }]}>
@@ -230,7 +309,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       </GestureDetector>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
